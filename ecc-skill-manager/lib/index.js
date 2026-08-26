@@ -139,6 +139,27 @@ export default {
       }).catch((e) => console.error('[skill-manager] sync error', e));
     });
 
-    return { buildCatalog, syncActive };
+    // Client data channel: harness.handle pairs with the browser half's
+    // host.call (the mechanism proven in the dynamic prototype).
+    if (typeof harness !== 'undefined' && harness.handle) {
+      harness.handle('skillmgr.list', async () => {
+        try {
+          const skills = await buildCatalog();
+          return { ok: true, skills };
+        } catch (e) {
+          return { ok: false, why: String(e && e.message || e) };
+        }
+      });
+      harness.handle('skillmgr.apply', async (args) => {
+        try {
+          const active = Array.isArray(args && args.active) ? args.active : [];
+          return await syncActive(active);
+        } catch (e) {
+          return { ok: false, why: String(e && e.message || e) };
+        }
+      });
+    }
+
+    return;
   },
 };

@@ -19,14 +19,27 @@ window.__ModuleLoader__.load({
 
     return {
       name: 'skill-manager-client',
+      inject: ['slots', 'settingsScope'],
       apply(ctx) {
-        const slots = ctx.get('slots');
-        if (slots === undefined) return;
         const h = React.createElement;
 
-        // Read/write the namespace through the client settings binding if the
-        // runtime exposes it; otherwise fall back to host.call (dynamic runs).
-        const settingsBind = (ctx.get && ctx.get('settings')) || undefined;
+        // Browser-side settings binding (secondary path where the transport is
+        // available); host.call is the primary data channel.
+        let bound = null;
+        try {
+          const ss = ctx.settingsScope || ctx.get('settingsScope');
+          if (ss && typeof ss.bind === 'function') bound = ss.bind({ namespace: 'ecc-skill-manager' });
+        } catch (_) {}
+
+        // Data channel: host.call (static client runner pairs it with the host
+        // half's harness.handle — the mechanism proven in the dynamic
+        // prototype). settingsScope is a secondary path where the transport is
+        // available (loopback host mode).
+        const readValue = () => null; // host.call is the read path
+        const callHost = async (method, args) => {
+          if (typeof host !== 'undefined' && host.call) return await host.call(method, args || {});
+          throw new Error('host.call unavailable');
+        };
 
         function SkillManager() {
           const [state, setState] = React.useState({ loading: true, skills: [], search: '', saved: null });
@@ -35,18 +48,11 @@ window.__ModuleLoader__.load({
             let alive = true;
             const load = async () => {
               try {
-                let catalog = [];
-                let active = [];
-                if (settingsBind && settingsBind.get) {
-                  const v = settingsBind.get('ecc-skill-manager');
-                  if (v) { catalog = v.catalog || []; active = v.active || []; }
-                } else if (typeof host !== 'undefined' && host.call) {
-                  const r = await host.call('skillmgr.list', {});
-                  if (r && r.ok) { catalog = r.skills || []; active = catalog.filter((s) => s.active).map((s) => s.name); }
-                }
+                const r = await callHost('skillmgr.list', {});
+                const catalog = r && Array.isArray(r.skills) ? r.skills : [];
+                const activeSet = new Set(catalog.filter((s) => s.active).map((s) => s.name));
                 if (!alive) return;
-                const activeSet = new Set(active);
-                const skills = (catalog || []).map((s) => ({ ...s, active: activeSet.has(s.name) }));
+                const skills = catalog.map((s) => ({ ...s, active: activeSet.has(s.name) }));
                 setState((s) => ({ ...s, loading: false, skills }));
               } catch (e) {
                 if (alive) setState((s) => ({ ...s, loading: false, saved: 'list error: ' + String(e) }));
@@ -65,14 +71,8 @@ window.__ModuleLoader__.load({
             const active = state.skills.filter((sk) => sk.active).map((sk) => sk.name);
             setState((s) => ({ ...s, saved: 'saving...' }));
             try {
-              if (settingsBind && settingsBind.set) {
-                await settingsBind.set('ecc-skill-manager', { active });
-              } else if (typeof host !== 'undefined' && host.call) {
-                await host.call('skillmgr.apply', { active });
-              } else {
-                throw new Error('no settings/host channel');
-              }
-              setState((s) => ({ ...s, saved: '已保存：启用 ' + active.length + ' 个技能（新会话生效）' }));
+              const r = await callHost('skillmgr.apply', { active });
+              setState((s) => ({ ...s, saved: (r && r.ok) ? '已保存：启用 ' + r.activeCount + ' 个技能（新会话生效）' : '保存失败: ' + String(r && r.why || r) }));
             } catch (e) {
               setState((s) => ({ ...s, saved: 'save error: ' + String(e) }));
             }
@@ -103,7 +103,7 @@ window.__ModuleLoader__.load({
           );
         }
 
-        slots.inject('settings.section', () => slots.register(
+        ctx.slots.inject('settings.section', () => ctx.slots.register(
           { name: 'settings.section', id: 'ecc-skill-manager', order: 30, label: '技能管理' },
           () => h(SkillManager),
         ));

@@ -1,3 +1,4 @@
 ﻿ecc-src/
 *.log
 
+ecc-skill-manager/node_modules/
