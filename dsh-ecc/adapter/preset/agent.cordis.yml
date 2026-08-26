@@ -98,14 +98,17 @@
 
 # ── skills ──────────────────────────────────────────────────────────────────
 
-# The ECC pilot skill set ships in this preset's own `skills/` directory
-# (flat Markdown; name comes from frontmatter). `baseUrl` is the preset's
-# directory, so the root resolves wherever the preset is installed.
+# The ECC skill set ships in this preset's `skills/` (curated 14) and
+# `skills-full/` (285). The MOUNTED set is `skills-active/`, managed by the
+# GUI 技能管理 panel (dynamic plugin): saving a selection syncs the chosen
+# SKILL.md files into `skills-active/`, and unselected entries are blanked.
+# `baseUrl` is the preset's directory, so the root resolves wherever the
+# preset is installed. (Seed skills-active/ with the curated set on install.)
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
   config:
     customSkillDirs:
-      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
+      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills-active/', baseUrl))"
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
