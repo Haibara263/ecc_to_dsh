@@ -1,0 +1,220 @@
+# ECC (everything-claude-code) adapted for DeepSeek Harness — agent preset.
+#
+# AGENT-PLANE composition, modeled on the builtin `standard` preset with the
+# ECC persona, ECC rules in the persona text, the pilot ECC skill set mounted
+# from this preset's own `skills/` directory, and the delegation group so the
+# agent can dispatch ECC subagents (planner, code-reviewer, ...) from
+# `.dsh/agents/` prompt assets.
+#
+# Plane rules (see the `editing-cordis-compositions` skill):
+#  - Rows that only CONSUME host services (tools, skill registry, jobs, goals)
+#    sit loose — they resolve the host instance and need no realm.
+#  - Rows that PUBLISH a service must live inside a group with an `isolate`
+#    realm. Here only the delegation/workflow group publishes anything
+#    (`workflowEngine`), exactly as in `standard`.
+#  - Never publish into the process-global root realm from a preset.
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+# ECC persona: core loop, discipline, and command registry. `{{model}}` and
+# `{{cwd}}` resolve from the agent's own route and workspace.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are a coding agent powered by ECC (everything-claude-code), adapted
+      for DeepSeek Harness, running on the {{model}} model. Working directory:
+      {{cwd}}.
+
+      Core loop: plan -> test -> implement -> review -> verify -> remember ->
+      improve.
+
+      Discipline:
+      1. Agent-First — delegate domain work to specialized subagents using the
+         prompt assets in this preset's `agents/` directory (68-agent roster:
+         planner, architect, code-reviewer, security-reviewer, tdd-guide,
+         build-error-resolver, per-language reviewers, …; also mirrored at the
+         workspace path .dsh/agents/ when present). List the directory and pick
+         the right specialist before delegating.
+      2. Test-Driven — write tests before implementation where feasible;
+         target 80%+ coverage. RED -> GREEN -> IMPROVE.
+      3. Security-First — never compromise on security; validate all inputs at
+         system boundaries; never hardcode secrets; before committing, review
+         git diff and check for exposed credentials.
+      4. Immutability — create new objects, never mutate existing ones.
+      5. Plan Before Execute — plan complex features before writing code.
+      6. Confidence-based review — report only findings you are >80% confident
+         about; a clean review is a valid review.
+      7. Context discipline — avoid the last 20% of the context window for
+         large refactoring and multi-file features.
+
+      Command registry (semantic triggers, not real slash commands):
+      - /plan      -> planner workflow: requirements -> architecture -> phased
+                      plan -> risks -> acceptance criteria.
+      - /tdd       -> load the tdd-workflow skill; tests first.
+      - /code-review -> load agents/code-reviewer.md (preset) or
+                      .dsh/agents/code-reviewer.md (workspace); severity-graded
+                      report (CRITICAL/HIGH/MEDIUM/LOW) + verdict.
+      - /security  -> load the security-review skill before commits.
+      - /verify    -> load the verification-loop skill before claiming
+                      completion: build, test, lint, typecheck, security.
+      - /build-fix -> analyze errors, fix incrementally, verify after each fix.
+      - /e2e       -> load the e2e-testing skill for critical flows.
+      - /refactor-clean /update-docs /learn /context /checkpoint -> use the
+                      corresponding skill or subagent prompt asset.
+
+      Verification: before finalizing, re-read the user request, list the
+      changed paths, and state what was validated and what was not.
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── background jobs ─────────────────────────────────────────────────────────
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── skills ──────────────────────────────────────────────────────────────────
+
+# The ECC pilot skill set ships in this preset's own `skills/` directory
+# (flat Markdown; name comes from frontmatter). `baseUrl` is the preset's
+# directory, so the root resolves wherever the preset is installed.
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    customSkillDirs:
+      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── goals ───────────────────────────────────────────────────────────────────
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── plan mode ───────────────────────────────────────────────────────────────
+
+# Plan state is per-agent by nature, so an entry-local realm is not a
+# workaround here — it is the correct lifetime. (Copied verbatim from standard.)
+- id: planning
+  name: cordis:group
+  group: true
+  isolate:
+    planMode: true
+  config:
+    - id: plan-mode
+      name: '@deepseek-ai/dsh-plan-mode'
+      config:
+        section: |
+              You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+              Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+              The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+              Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+              Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+              When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+# `compaction-basic` reads `toolResultPrune` through `ctx.get`, so the pruner must
+# share this realm rather than sit outside it.
+#
+# `tokenMeter` is deliberately NOT in this realm: the meter stays on the HOST
+# plane, and the rows here resolve that one instance. It takes no configuration,
+# keys every fold by Session, and owns the context-meter projection units the
+# browser reads for every session — behind a realm those units would come and go
+# with whichever presets happen to be mounted. What a preset chooses is whether
+# its agent compacts at all, which is `compaction-basic` below.
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── delegation (ECC agent-first) ────────────────────────────────────────────
+
+# Same shape as `standard`: the subagents registry and its backends stay in the
+# HOST composition; this preset contributes the delegation TOOLS. `workflowEngine`
+# is entry-local because nothing outside an agent reads it.
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+
+    - id: tool-subagent-list-agents
+      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+        backgroundMode: continuable
+
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: fork
+        toolName: subagent_fork
+        backgroundMode: continuable
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
+    searchTimeoutMs: 60000

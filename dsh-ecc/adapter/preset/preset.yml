@@ -1,0 +1,6 @@
+name: ECC
+description: >-
+  ECC（everything-claude-code）适配 preset：精选 14 个技能（tdd-workflow、
+  security-review、verification-loop、git-workflow 等）、68 个 agent 提示词资产
+  （planner/code-reviewer/security-reviewer/tdd-guide/architect 等）、ECC 核心纪律
+  （TDD、安全优先、不可变性、先计划后执行）与命令注册表。基于官方 standard preset。
