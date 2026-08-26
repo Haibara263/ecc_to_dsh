@@ -24,7 +24,7 @@ const Config = z.object({
   active: z.array(z.string()).default([]),
 });
 
-const inject = ['settings', 'agentPresets'];
+const inject = ['settings', 'agentPresets', 'webServer'];
 
 function parseFrontmatter(text) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
@@ -139,24 +139,46 @@ export default {
       }).catch((e) => console.error('[skill-manager] sync error', e));
     });
 
-    // Client data channel: harness.handle pairs with the browser half's
-    // host.call (the mechanism proven in the dynamic prototype).
-    if (typeof harness !== 'undefined' && harness.handle) {
-      harness.handle('skillmgr.list', async () => {
-        try {
-          const skills = await buildCatalog();
-          return { ok: true, skills };
-        } catch (e) {
-          return { ok: false, why: String(e && e.message || e) };
-        }
+    // Client data channel: same-origin HTTP routes (the pattern proven by
+    // sibling plugins such as describe-image) — visible to every client page
+    // regardless of settings-RPC visibility rules.
+    const webServer = ctx.get('webServer');
+    if (webServer !== undefined && webServer.register) {
+      const json = (res, code, body) => {
+        const text = JSON.stringify(body);
+        res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text) });
+        res.end(text);
+      };
+      const readBody = (req) => new Promise((resolve, reject) => {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); } catch (e) { reject(e); } });
+        req.on('error', reject);
       });
-      harness.handle('skillmgr.apply', async (args) => {
-        try {
-          const active = Array.isArray(args && args.active) ? args.active : [];
-          return await syncActive(active);
-        } catch (e) {
-          return { ok: false, why: String(e && e.message || e) };
-        }
+      webServer.register({
+        kind: 'exact',
+        path: '/skill-manager/list',
+        handler: async (req, res) => {
+          try {
+            const skills = await buildCatalog();
+            json(res, 200, { ok: true, skills });
+          } catch (e) {
+            json(res, 500, { ok: false, why: String(e && e.message || e) });
+          }
+        },
+      });
+      webServer.register({
+        kind: 'exact',
+        path: '/skill-manager/apply',
+        handler: async (req, res) => {
+          try {
+            const body = await readBody(req);
+            const active = Array.isArray(body && body.active) ? body.active : [];
+            json(res, 200, await syncActive(active));
+          } catch (e) {
+            json(res, 500, { ok: false, why: String(e && e.message || e) });
+          }
+        },
       });
     }
 

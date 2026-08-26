@@ -19,26 +19,24 @@ window.__ModuleLoader__.load({
 
     return {
       name: 'skill-manager-client',
-      inject: ['slots', 'settingsScope'],
+      inject: ['slots'],
       apply(ctx) {
         const h = React.createElement;
 
-        // Browser-side settings binding (secondary path where the transport is
-        // available); host.call is the primary data channel.
-        let bound = null;
-        try {
-          const ss = ctx.settingsScope || ctx.get('settingsScope');
-          if (ss && typeof ss.bind === 'function') bound = ss.bind({ namespace: 'ecc-skill-manager' });
-        } catch (_) {}
-
-        // Data channel: host.call (static client runner pairs it with the host
-        // half's harness.handle — the mechanism proven in the dynamic
-        // prototype). settingsScope is a secondary path where the transport is
-        // available (loopback host mode).
-        const readValue = () => null; // host.call is the read path
-        const callHost = async (method, args) => {
-          if (typeof host !== 'undefined' && host.call) return await host.call(method, args || {});
-          throw new Error('host.call unavailable');
+        // Data channel: same-origin HTTP routes on the host webServer (the
+        // pattern proven by sibling plugins such as describe-image).
+        const loadCatalog = async () => {
+          const r = await fetch('/skill-manager/list');
+          const j = await r.json();
+          return j && j.ok && Array.isArray(j.skills) ? j.skills : [];
+        };
+        const applyActive = async (active) => {
+          const r = await fetch('/skill-manager/apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active }),
+          });
+          return await r.json();
         };
 
         function SkillManager() {
@@ -48,10 +46,9 @@ window.__ModuleLoader__.load({
             let alive = true;
             const load = async () => {
               try {
-                const r = await callHost('skillmgr.list', {});
-                const catalog = r && Array.isArray(r.skills) ? r.skills : [];
-                const activeSet = new Set(catalog.filter((s) => s.active).map((s) => s.name));
+                const catalog = await loadCatalog();
                 if (!alive) return;
+                const activeSet = new Set(catalog.filter((s) => s.active).map((s) => s.name));
                 const skills = catalog.map((s) => ({ ...s, active: activeSet.has(s.name) }));
                 setState((s) => ({ ...s, loading: false, skills }));
               } catch (e) {
@@ -71,7 +68,7 @@ window.__ModuleLoader__.load({
             const active = state.skills.filter((sk) => sk.active).map((sk) => sk.name);
             setState((s) => ({ ...s, saved: 'saving...' }));
             try {
-              const r = await callHost('skillmgr.apply', { active });
+              const r = await applyActive(active);
               setState((s) => ({ ...s, saved: (r && r.ok) ? '已保存：启用 ' + r.activeCount + ' 个技能（新会话生效）' : '保存失败: ' + String(r && r.why || r) }));
             } catch (e) {
               setState((s) => ({ ...s, saved: 'save error: ' + String(e) }));
