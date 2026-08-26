@@ -1,0 +1,27 @@
+{
+  "name": "dsh-skill-manager",
+  "version": "0.1.0",
+  "description": "ECC skill manager: GUI settings panel to select which skills are active in the ecc preset (host syncs skills-active/ from the saved selection; survives page refresh and DSH restart as a static web plugin).",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
+  },
+  "dependencies": {
+    "schemastery": "^3.18.0"
+  },
+  "license": "MIT"
+}
