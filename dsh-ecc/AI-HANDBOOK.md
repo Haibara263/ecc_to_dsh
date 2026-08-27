@@ -181,6 +181,7 @@ return {
 | 技能不出现 | catalog digest 缓存 | 重开会话；或检查技能 frontmatter `name` 合法（小写连字符） |
 | 技能「不是我改的那份」 | 项目级技能遮蔽（rank 100 > preset 300） | 见 `docs/MIGRATION-MAP.md` §7.2 优先级表 |
 | 写 `~/.dsh` 被拒 | 工作区外写入 | 一次性 `danger-full-access` 审批（正常） |
+| DSH 启动崩溃：`credentials-local: the value for "version" in ...\.credentials.yaml must be a string` | `.credentials.yaml` 含非字符串的 `version` 键——该文件是严格的「凭据引用 → 非空字符串」映射，**不允许 version 字段**；与本适配包无关（仓库无凭据文件、安装步骤不触碰凭据） | 编辑 `$DSH_HOME/.credentials.yaml`，删除 `version:` 行（或写成 `version: "2"` 字符串）；重启 |
 
 ---
 
