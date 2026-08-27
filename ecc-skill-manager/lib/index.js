@@ -101,6 +101,10 @@ export default {
       const fs = fsMaybe();
       if (fs === undefined) return { ok: false, why: 'no fs service' };
       const want = new Set(Array.isArray(active) ? active : []);
+      // Safety: an empty selection must NOT wipe skills-active/. It usually
+      // means the namespace default (no saved selection yet) or a host-side
+      // catalog publish — never an explicit user action.
+      if (want.size === 0) return { ok: true, activeCount: 0, total: 0, skipped: true };
       const dir = await presetDir();
       const join = (d) => fs.resolve(dir + '/' + d);
       const curated = await scanDir(fs, await join('skills'));
